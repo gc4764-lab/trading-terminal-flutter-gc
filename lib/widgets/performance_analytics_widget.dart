@@ -609,16 +609,640 @@ class _PerformanceAnalyticsWidgetState extends State<PerformanceAnalyticsWidget>
                     value: true,
                     onChanged: (value) {},
                   ),
-                  Switch
-                  
-                  
-                  
-                  
-                  
-                  
-                  
-                  
-                  
-                  
-                  
-                  
+                  SwitchListTile(
+                    title: const Text('Risk Alert Notifications'),
+                    subtitle: const Text('When risk metrics exceed thresholds'),
+                    value: true,
+                    onChanged: (value) {},
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildTabBar() {
+    return Container(
+      color: Theme.of(context).cardColor,
+      child: TabBar(
+        controller: _tabController,
+        tabs: const [
+          Tab(text: 'Overview', icon: Icon(Icons.dashboard)),
+          Tab(text: 'Risk', icon: Icon(Icons.security)),
+          Tab(text: 'Distribution', icon: Icon(Icons.show_chart)),
+          Tab(text: 'Comparative', icon: Icon(Icons.compare)),
+          Tab(text: 'Reports', icon: Icon(Icons.description)),
+        ],
+        labelColor: Colors.blue,
+        unselectedLabelColor: Colors.grey,
+      ),
+    );
+  }
+  
+  // ==================== CHART BUILDERS ====================
+  
+  Widget _buildEquityCurve() {
+    return LineChart(
+      LineChartData(
+        gridData: FlGridData(show: true),
+        titlesData: FlTitlesData(
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              getTitlesWidget: (value, meta) {
+                return Text('\$${value.toStringAsFixed(0)}');
+              },
+            ),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              getTitlesWidget: (value, meta) {
+                return Text('${value.toInt()}');
+              },
+            ),
+          ),
+        ),
+        lineBarsData: [
+          LineChartBarData(
+            spots: _analytics!.equityCurve.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value)).toList(),
+            isCurved: true,
+            color: Colors.blue,
+            barWidth: 2,
+            belowBarData: BarAreaData(
+              show: true,
+              color: Colors.blue.withOpacity(0.1),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildMonthlyHeatmap() {
+    final monthly = _analytics!.monthlyReturns;
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    return Container(
+      height: 300,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: monthly.length,
+        itemBuilder: (context, yearIndex) {
+          final year = monthly.keys.elementAt(yearIndex);
+          final yearData = monthly[year]!;
+          
+          return Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Column(
+              children: [
+                Text(
+                  year.toString(),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                GridView.builder(
+                  shrinkWrap: true,
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 6,
+                    childAspectRatio: 1,
+                  ),
+                  itemCount: 12,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemBuilder: (context, monthIndex) {
+                    final return_ = yearData[monthIndex + 1] ?? 0;
+                    return Container(
+                      margin: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: _getReturnColor(return_),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Center(
+                        child: Text(
+                          '${return_.toStringAsFixed(0)}%',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: return_.abs() > 10 ? Colors.white : Colors.grey[300],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+  
+  Widget _buildDrawdownChart() {
+    // Simplified drawdown calculation
+    final drawdowns = <double>[];
+    var peak = _analytics!.equityCurve.first;
+    
+    for (var value in _analytics!.equityCurve) {
+      if (value > peak) peak = value;
+      drawdowns.add(((peak - value) / peak) * -100);
+    }
+    
+    return LineChart(
+      LineChartData(
+        gridData: FlGridData(show: true),
+        titlesData: FlTitlesData(
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              getTitlesWidget: (value, meta) {
+                return Text('${value.toStringAsFixed(0)}%');
+              },
+            ),
+          ),
+        ),
+        lineBarsData: [
+          LineChartBarData(
+            spots: drawdowns.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value)).toList(),
+            color: Colors.red,
+            barWidth: 2,
+            belowBarData: BarAreaData(
+              show: true,
+              color: Colors.red.withOpacity(0.1),
+            ),
+          ),
+        ],
+        maxY: 0,
+      ),
+    );
+  }
+  
+  Widget _buildVaRChart() {
+    final varData = {
+      'VaR 90%': _analytics!.valueAtRisk95 * 0.8,
+      'VaR 95%': _analytics!.valueAtRisk95,
+      'VaR 99%': _analytics!.valueAtRisk95 * 1.2,
+      'CVaR': _analytics!.conditionalVaR95,
+    };
+    
+    return BarChart(
+      BarChartData(
+        barGroups: varData.entries.map((entry) {
+          return BarChartGroupData(
+            x: entry.key.hashCode,
+            barRods: [
+              BarChartRodData(
+                toY: entry.value.abs(),
+                color: Colors.red,
+                width: 30,
+              ),
+            ],
+          );
+        }).toList(),
+        titlesData: FlTitlesData(
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              getTitlesWidget: (value, meta) {
+                final index = value.toInt();
+                if (index < varData.length) {
+                  return Text(varData.keys.elementAt(index));
+                }
+                return const Text('');
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildDistributionChart() {
+    final returns = _analytics!.returns;
+    final bins = _createHistogramBins(returns);
+    
+    return BarChart(
+      BarChartData(
+        barGroups: bins.asMap().entries.map((entry) {
+          return BarChartGroupData(
+            x: entry.key,
+            barRods: [
+              BarChartRodData(
+                toY: entry.value,
+                color: Colors.blue,
+                width: 20,
+              ),
+            ],
+          );
+        }).toList(),
+        titlesData: FlTitlesData(
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              getTitlesWidget: (value, meta) {
+                return Text('${(value * 2 - 10).toStringAsFixed(0)}%');
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildAlphaBetaChart(List<double> benchmarkReturns) {
+    final spots = <FlSpot>[];
+    for (var i = 0; i < min(_analytics!.returns.length, benchmarkReturns.length); i++) {
+      spots.add(FlSpot(benchmarkReturns[i] * 100, _analytics!.returns[i] * 100));
+    }
+    
+    return ScatterChart(
+      ScatterChartData(
+        scatterSpots: spots.map((spot) => ScatterSpot(spot.x, spot.y)).toList(),
+        titlesData: FlTitlesData(
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              getTitlesWidget: (value, meta) {
+                return Text('${value.toStringAsFixed(0)}%');
+              },
+            ),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              getTitlesWidget: (value, meta) {
+                return Text('${value.toStringAsFixed(0)}%');
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  
+  // ==================== GRID BUILDERS ====================
+  
+  Widget _buildPerformanceGrid() {
+    return GridView.count(
+      shrinkWrap: true,
+      crossAxisCount: 2,
+      childAspectRatio: 1.8,
+      physics: const NeverScrollableScrollPhysics(),
+      children: [
+        _buildMetric('Total Return', '${_analytics!.totalReturn.toStringAsFixed(1)}%', _analytics!.totalReturn >= 0 ? Colors.green : Colors.red),
+        _buildMetric('Annualized', '${_analytics!.annualizedReturn.toStringAsFixed(1)}%', Colors.blue),
+        _buildMetric('Volatility', '${_analytics!.volatility.toStringAsFixed(1)}%', Colors.orange),
+        _buildMetric('Sharpe Ratio', _analytics!.sharpeRatio.toStringAsFixed(2), _analytics!.sharpeRatio > 1 ? Colors.green : Colors.orange),
+        _buildMetric('Max Drawdown', '${_analytics!.maxDrawdown.toStringAsFixed(1)}%', Colors.red),
+        _buildMetric('Win Rate', '${_analytics!.tradeStatistics['win_rate']?.toStringAsFixed(1)}%', Colors.green),
+        _buildMetric('Profit Factor', _analytics!.tradeStatistics['profit_factor']?.toStringAsFixed(2) ?? '0', Colors.blue),
+        _buildMetric('Calmar Ratio', _analytics!.calmarRatio.toStringAsFixed(2), _analytics!.calmarRatio > 1 ? Colors.green : Colors.orange),
+      ],
+    );
+  }
+  
+  Widget _buildRiskGrid() {
+    final risk = _analytics!.riskMetrics;
+    
+    return GridView.count(
+      shrinkWrap: true,
+      crossAxisCount: 2,
+      childAspectRatio: 1.8,
+      physics: const NeverScrollableScrollPhysics(),
+      children: [
+        _buildMetric('VaR (95%)', '${risk['var_95']?.toStringAsFixed(1)}%', Colors.red),
+        _buildMetric('CVaR (95%)', '${risk['cvar_95']?.toStringAsFixed(1)}%', Colors.red),
+        _buildMetric('Sortino Ratio', _analytics!.sortinoRatio.toStringAsFixed(2), _analytics!.sortinoRatio > 1 ? Colors.green : Colors.orange),
+        _buildMetric('Omega Ratio', _analytics!.omegaRatio.toStringAsFixed(2), Colors.blue),
+        _buildMetric('Sterling Ratio', _analytics!.performanceRatios['sterling_ratio']?.toStringAsFixed(2) ?? '0', Colors.blue),
+        _buildMetric('Burke Ratio', _analytics!.performanceRatios['burke_ratio']?.toStringAsFixed(2) ?? '0', Colors.blue),
+        _buildMetric('Ulcer Index', _analytics!.riskMetrics['ulcer_index']?.toStringAsFixed(2) ?? '0', Colors.orange),
+        _buildMetric('Recovery Factor', _analytics!.recoveryFactor.toStringAsFixed(2), Colors.blue),
+      ],
+    );
+  }
+  
+  Widget _buildComparisonGrid(Map<String, double> comparison) {
+    return GridView.count(
+      shrinkWrap: true,
+      crossAxisCount: 2,
+      childAspectRatio: 2,
+      physics: const NeverScrollableScrollPhysics(),
+      children: [
+        _buildMetric('Alpha', '${comparison['alpha']?.toStringAsFixed(2)}%', comparison['alpha']! >= 0 ? Colors.green : Colors.red),
+        _buildMetric('Beta', comparison['beta']?.toStringAsFixed(2) ?? '0', comparison['beta']! > 1 ? Colors.red : Colors.green),
+        _buildMetric('Information Ratio', comparison['information_ratio']?.toStringAsFixed(2) ?? '0', Colors.blue),
+        _buildMetric('Tracking Error', '${comparison['tracking_error']?.toStringAsFixed(2)}%', Colors.orange),
+        _buildMetric('Relative Return', '${comparison['relative_return']?.toStringAsFixed(2)}%', comparison['relative_return']! >= 0 ? Colors.green : Colors.red),
+      ],
+    );
+  }
+  
+  Widget _buildDrawdownStats() {
+    final drawdownPeriods = _analytics!.drawdownPeriods;
+    
+    return Row(
+      children: [
+        Expanded(
+          child: _buildDrawdownStat(
+            'Max Drawdown',
+            '${drawdownPeriods['max_drawdown']?.toStringAsFixed(1)}%',
+            Colors.red,
+          ),
+        ),
+        Expanded(
+          child: _buildDrawdownStat(
+            'Recovery Days',
+            '${drawdownPeriods['max_drawdown_days']?.toStringAsFixed(0)}',
+            Colors.orange,
+          ),
+        ),
+        Expanded(
+          child: _buildDrawdownStat(
+            'Current DD',
+            '${drawdownPeriods['current_drawdown']?.toStringAsFixed(1)}%',
+            drawdownPeriods['current_drawdown']! > 0 ? Colors.red : Colors.green,
+          ),
+        ),
+      ],
+    );
+  }
+  
+  Widget _buildStressTestResults() {
+    final stressResults = {
+      'Market Crash (-20%)': -18.5,
+      'Rate Hike (+2%)': -12.3,
+      'Recession': -25.7,
+      'Oil Spike': -8.2,
+    };
+    
+    return Column(
+      children: stressResults.entries.map((entry) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(entry.key),
+                  Text(
+                    '${entry.value >= 0 ? '+' : ''}${entry.value.toStringAsFixed(1)}%',
+                    style: TextStyle(
+                      color: entry.value >= 0 ? Colors.green : Colors.red,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              LinearProgressIndicator(
+                value: (entry.value.abs() / 30).clamp(0, 1),
+                backgroundColor: Colors.grey[800],
+                valueColor: AlwaysStoppedAnimation(
+                  entry.value >= 0 ? Colors.green : Colors.red,
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+  
+  Widget _buildRollingReturns() {
+    final rolling = _analytics!.rollingReturns;
+    
+    return Column(
+      children: [
+        _buildRollingMetric('30-Day Avg', '${rolling['rolling_30_avg']?.toStringAsFixed(2)}%', Colors.blue),
+        _buildRollingMetric('60-Day Avg', '${rolling['rolling_60_avg']?.toStringAsFixed(2)}%', Colors.blue),
+        _buildRollingMetric('90-Day Avg', '${rolling['rolling_90_avg']?.toStringAsFixed(2)}%', Colors.blue),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: _buildRollingMetric('30-Day Max', '${rolling['rolling_30_max']?.toStringAsFixed(2)}%', Colors.green),
+            ),
+            Expanded(
+              child: _buildRollingMetric('30-Day Min', '${rolling['rolling_30_min']?.toStringAsFixed(2)}%', Colors.red),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+  
+  // ==================== HELPER WIDGETS ====================
+  
+  Widget _buildMetric(String label, String value, Color color) {
+    return Container(
+      margin: const EdgeInsets.all(4),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.grey[800],
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildStat(String label, String value) {
+    return Container(
+      margin: const EdgeInsets.all(4),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.grey[800],
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildDrawdownStat(String label, String value, Color color) {
+    return Container(
+      margin: const EdgeInsets.all(4),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey[800],
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildRollingMetric(String label, String value, Color color) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.all(8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 12)),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildConsecutiveCard(String label, String value, Color color, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 32),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildCaptureCard(String label, String value, Color color, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 32),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildExportButton(String label, IconData icon, Color color) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: () {
+          // Export functionality
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Export feature coming soon')),
+          );
+        },
+        icon: Icon(icon),
+        label: Text(label),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color.withOpacity(0.2),
+          foregroundColor: color,
+        ),
+      ),
+    );
+  }
+  
+  // ==================== HELPER METHODS ====================
+  
+  Color _getReturnColor(double return_) {
+    if (return_ > 5) return Colors.green[700]!;
+    if (return_ > 0) return Colors.green[400]!;
+    if (return_ > -5) return Colors.red[400]!;
+    return Colors.red[700]!;
+  }
+  
+  List<int> _createHistogramBins(List<double> returns, {int bins = 20}) {
+    final minReturn = returns.reduce((a, b) => a < b ? a : b);
+    final maxReturn = returns.reduce((a, b) => a > b ? a : b);
+    final binWidth = (maxReturn - minReturn) / bins;
+    
+    final histogram = List.filled(bins, 0);
+    
+    for (var r in returns) {
+      final binIndex = ((r - minReturn) / binWidth).floor();
+      if (binIndex >= 0 && binIndex < bins) {
+        histogram[binIndex]++;
+      }
+    }
+    
+    return histogram;
+  }
+  
+  List<double> _generateBenchmarkReturns() {
+    // Generate S&P 500 like returns for demo
+    final random = Random();
+    final returns = <double>[];
+    for (var i = 0; i < _analytics!.returns.length; i++) {
+      returns.add(random.nextDouble() * 0.03 - 0.015);
+    }
+    return returns;
+  }
+}
